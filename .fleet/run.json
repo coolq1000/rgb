@@ -1,0 +1,12 @@
+{
+    "configurations": [
+        {
+            "type": "cargo",
+            "name": "Cargo configuration",
+            "cargoArgs": ["run"],
+            "environment": {
+                "RUST_LOG": "info"
+            }
+        }
+    ]
+}
