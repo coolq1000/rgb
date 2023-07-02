@@ -6,9 +6,10 @@ use bitmatch::bitmatch;
 pub fn execute(cpu: &mut Cpu, opcode: u8) {
     #[bitmatch]
     match opcode {
-        "0000_0000" => control_misc::nop(),
+        "0000_0000" => misc::nop(),
         "00xx_0001" => lsm::ld_r16_u16(cpu, x),
-        "00xx_?011" => alu::inc_r16(cpu, x),
+        "00xx_0011" => alu::inc_r16(cpu, x),
+        "00xx_1011" => alu::dec_r16(cpu, x),
         "00xx_x100" => alu::inc_r8(cpu, x),
         "00xx_x101" => alu::dec_r8(cpu, x),
         "00xx_x110" => lsm::ld_r8_u8(cpu, x),
@@ -18,23 +19,20 @@ pub fn execute(cpu: &mut Cpu, opcode: u8) {
         "0001_1111" => rsb::rra(cpu),
         "000x_0010" => lsm::ld_mr16_a(cpu, x),
         "000x_1010" => lsm::ld_a_mr16(cpu, x),
-        "0001_1000" => control_br::jr_i8(cpu),
-        "001x_x000" => control_br::jr_f_i8(cpu, x),
+        "0001_1000" => ctrl::jr_i8(cpu),
+        "001x_x000" => ctrl::jr_f_i8(cpu, x),
         "0010_0010" => lsm::ldi_mhl_a(cpu),
         "0010_1010" => lsm::ldi_a_mhl(cpu),
         "0011_0010" => lsm::ldd_mhl_a(cpu),
         "0011_1010" => lsm::ldd_a_mhl(cpu),
         "0000_1000" => lsm::ld_mu16_sp(cpu),
         "01xx_xyyy" => lsm::ld_r8_r8(cpu, x, y),
-        "1010_1xxx" => {
-            let r8 = cpu.get_r8(x);
-            alu::xor_a_val(cpu, r8)
-        }
-        "110x_x000" => control_br::ret_f(cpu, x),
+        "1010_1xxx" => alu::xor_a_r8(cpu, x),
+        "110x_x000" => ctrl::ret_f(cpu, x),
         "11xx_0001" => lsm::pop_r16(cpu, x),
-        "1100_1001" => control_br::ret(cpu),
+        "1100_1001" => ctrl::ret(cpu),
         "11xx_0101" => lsm::push_r16(cpu, x),
-        "1100_1101" => control_br::call_u16(cpu),
+        "1100_1101" => ctrl::call_u16(cpu),
         "1110_0000" => lsm::ldh_mu8_a(cpu),
         "1110_0010" => lsm::ldh_mc_a(cpu),
         "1111_0010" => lsm::ldh_a_mc(cpu),
@@ -72,7 +70,7 @@ fn next_word(cpu: &mut Cpu) -> u16 {
 }
 
 /// cpu control miscellaneous instructions
-mod control_misc {
+mod misc {
     pub fn nop() {}
 }
 
@@ -172,6 +170,12 @@ mod alu {
         cpu.delay(1);
     }
 
+    pub fn dec_r16(cpu: &mut Cpu, reg: u8) {
+        let r16 = cpu.get_r16_sp(reg);
+        cpu.set_r16_sp(reg, r16.wrapping_sub(1));
+        cpu.delay(1);
+    }
+
     pub fn inc_r8(cpu: &mut Cpu, reg: u8) {
         let r8 = cpu.get_r8(reg);
         let added = r8.wrapping_add(1);
@@ -217,14 +221,6 @@ mod alu {
         cpu.flags.c = result > 0xff;
     }
 
-    pub fn xor_a_val(cpu: &mut Cpu, val: u8) {
-        cpu.registers.a ^= val;
-        cpu.flags.z = cpu.registers.a == 0;
-        cpu.flags.n = false;
-        cpu.flags.h = false;
-        cpu.flags.c = false;
-    }
-
     pub fn xor_a_r8(cpu: &mut Cpu, reg: u8) {
         let r8 = cpu.get_r8(reg);
         xor_a_val(cpu, r8)
@@ -233,6 +229,14 @@ mod alu {
     pub fn xor_a_u8(cpu: &mut Cpu) {
         let imm8 = super::next_byte(cpu);
         xor_a_val(cpu, imm8)
+    }
+
+    pub fn xor_a_val(cpu: &mut Cpu, val: u8) {
+        cpu.registers.a ^= val;
+        cpu.flags.z = cpu.registers.a == 0;
+        cpu.flags.n = false;
+        cpu.flags.h = false;
+        cpu.flags.c = false;
     }
 }
 
@@ -278,7 +282,7 @@ mod rsb {
 }
 
 /// control branch instructions
-mod control_br {
+mod ctrl {
     use crate::cpu::Cpu;
 
     pub fn jr_i8(cpu: &mut Cpu) {
@@ -321,6 +325,7 @@ mod control_br {
     }
 }
 
+/// prefix cb
 mod cb {
     pub mod rsb {
         use crate::cpu::Cpu;

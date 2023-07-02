@@ -291,27 +291,18 @@ impl Cpu {
         self.advance(machine_cycles * 4);
     }
 
-    /// returns whether the interrupt was handled
+    /// handles interrupt, returns whether it was actually handled
     fn handle_interrupt(&mut self) -> bool {
         if self.interrupt.vblank && self.bus.ppu.trips.vblank {
-            // acknowledge vblank interrupt
             self.bus.ppu.trips.vblank = false;
-
-            // launch vblank interrupt
             self.interrupt(interrupt::irq_vector::VBLANK as u16);
             true
         } else if self.interrupt.lcdc && self.bus.ppu.trips.lcd {
-            // acknowledge lcd interrupt
             self.bus.ppu.trips.lcd = false;
-
-            // launch lcd interrupt
             self.interrupt(interrupt::irq_vector::LCDC as u16);
             true
         } else if self.interrupt.timer && self.bus.timer.interrupt {
-            // acknowledge timer interrupt
             self.bus.timer.interrupt = false;
-
-            // launch timer interrupt
             self.interrupt(interrupt::irq_vector::TIMER as u16);
             true
         } else {
