@@ -29,7 +29,7 @@ impl From<u8> for Interrupt {
 
 impl From<Interrupt> for u8 {
     fn from(value: Interrupt) -> Self {
-        (value.vblank as u8) << 0
+        (value.vblank as u8)
             | (value.lcdc as u8) << 1
             | (value.timer as u8) << 2
             | (value.serial as u8) << 3

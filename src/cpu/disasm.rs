@@ -619,7 +619,6 @@ pub fn disassmble(cpu: &Cpu, addr: u16, opcode: u8) -> String {
             cpu.bus.fetch_byte(cpu.registers.pc + 1) as u16
                 | ((cpu.bus.fetch_byte(cpu.registers.pc + 2) as u16) << 8)
         )
-        .to_string()
         .as_str(),
     );
 
@@ -630,7 +629,6 @@ pub fn disassmble(cpu: &Cpu, addr: u16, opcode: u8) -> String {
             cpu.bus.fetch_byte(cpu.registers.pc + 1) as u16
                 | ((cpu.bus.fetch_byte(cpu.registers.pc + 2) as u16) << 8)
         )
-        .to_string()
         .as_str(),
     );
 

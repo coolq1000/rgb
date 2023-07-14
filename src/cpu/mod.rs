@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use crate::io::{cartridge::Cartridge, Bus, Ppu, Timer};
+use crate::io::{cartridge::Cartridge, Bus};
 
 use interrupt::Interrupt;
 use log::{error, info};
@@ -14,8 +12,6 @@ pub struct Cpu {
     pub registers: Registers,
     /// cpu flags, aka. 'f' register
     pub flags: Flags,
-    /// set of cpu interrupts, disrupt control flow
-    interrupt: Interrupt,
     /// interrupt enable
     it_master_enable: bool,
     /// set to true if interrupt should be delayed one instruction
@@ -54,7 +50,6 @@ impl Cpu {
         Self {
             registers: Registers::default(),
             flags: Flags::default(),
-            interrupt: Interrupt::default(),
             it_master_enable: false,
             it_master_enable_next: false,
             halted: false,
@@ -76,7 +71,7 @@ impl Cpu {
         }
 
         if self.halted {
-            self.bus.step();
+            self.bus.tick();
             self.cycles += 1;
 
             // even if the interrupt flag is disabled
@@ -258,7 +253,7 @@ impl Cpu {
         // fetch opcode at program counter
         let opcode = self.fetch_byte(self.registers.pc);
 
-        self.trace();
+        // self.trace();
 
         // increment program counter
         self.registers.pc = self.registers.pc.wrapping_add(1);
@@ -281,7 +276,7 @@ impl Cpu {
 
     fn advance(&mut self, cycles: u8) {
         for _ in 0..cycles {
-            self.bus.step();
+            self.bus.tick();
         }
 
         self.cycles += cycles;
@@ -293,17 +288,17 @@ impl Cpu {
 
     /// handles interrupt, returns whether it was actually handled
     fn handle_interrupt(&mut self) -> bool {
-        if self.interrupt.vblank && self.bus.ppu.trips.vblank {
-            self.bus.ppu.trips.vblank = false;
-            self.interrupt(interrupt::irq_vector::VBLANK as u16);
+        if self.bus.it_enable.vblank && self.bus.ppu.vblank_int {
+            self.bus.ppu.vblank_int = false;
+            self.interrupt(interrupt::irq_vector::VBLANK);
             true
-        } else if self.interrupt.lcdc && self.bus.ppu.trips.lcd {
-            self.bus.ppu.trips.lcd = false;
-            self.interrupt(interrupt::irq_vector::LCDC as u16);
+        } else if self.bus.it_enable.lcdc && self.bus.ppu.lcd_stat_int {
+            self.bus.ppu.lcd_stat_int = false;
+            self.interrupt(interrupt::irq_vector::LCDC);
             true
-        } else if self.interrupt.timer && self.bus.timer.interrupt {
+        } else if self.bus.it_enable.timer && self.bus.timer.interrupt {
             self.bus.timer.interrupt = false;
-            self.interrupt(interrupt::irq_vector::TIMER as u16);
+            self.interrupt(interrupt::irq_vector::TIMER);
             true
         } else {
             // interrupt was not handled
@@ -313,12 +308,20 @@ impl Cpu {
 
     /// returns whether the interrupt can be handled
     fn check_interrupt(&mut self) -> bool {
-        (self.interrupt.vblank && self.bus.ppu.trips.vblank)
-            || (self.interrupt.lcdc && self.bus.ppu.trips.lcd)
-            || (self.interrupt.timer && self.bus.timer.interrupt)
+        (self.bus.it_enable.vblank && self.bus.ppu.vblank_int)
+            || (self.bus.it_enable.lcdc && self.bus.ppu.lcd_stat_int)
+            || (self.bus.it_enable.timer && self.bus.timer.interrupt)
     }
 
-    fn interrupt(&mut self, address: u16) {}
+    fn interrupt(&mut self, address: u16) {
+        self.halted = false;
+        self.it_master_enable = false;
+        self.it_master_enable_next = false;
+
+        self.push_word(self.registers.pc);
+        self.delay(6);
+        self.registers.pc = address;
+    }
 
     pub fn fault(&mut self, message: &str) {
         self.registers.pc -= 1; // rewind program counter
@@ -350,25 +353,25 @@ impl Cpu {
         info!(
             "cpu::reg::bc = {:04x} | cpu::int::vblank = {}",
             self.get_bc(),
-            self.interrupt.vblank
+            self.bus.it_enable.vblank
         );
         info!(
             "cpu::reg::de = {:04x} | cpu::int::lcdc   = {}",
             self.get_de(),
-            self.interrupt.lcdc
+            self.bus.it_enable.lcdc
         );
         info!(
             "cpu::reg::hl = {:04x} | cpu::int::timer  = {}",
             self.get_hl(),
-            self.interrupt.timer
+            self.bus.it_enable.timer
         );
         info!(
             "cpu::reg::pc = {:04x} | cpu::int::serial = {}",
-            self.registers.pc, self.interrupt.serial
+            self.registers.pc, self.bus.it_enable.serial
         );
         info!(
             "cpu::reg::sp = {:04x} | cpu::int::joypad = {}",
-            self.registers.sp, self.interrupt.joypad
+            self.registers.sp, self.bus.it_enable.joypad
         );
     }
 }
@@ -376,10 +379,10 @@ impl Cpu {
 impl From<u8> for Flags {
     fn from(value: u8) -> Self {
         Self {
-            z: (value & (1 << 7)) == 1,
-            n: (value & (1 << 6)) == 1,
-            h: (value & (1 << 5)) == 1,
-            c: (value & (1 << 4)) == 1,
+            z: (value & (1 << 7)) != 0,
+            n: (value & (1 << 6)) != 0,
+            h: (value & (1 << 5)) != 0,
+            c: (value & (1 << 4)) != 0,
         }
     }
 }

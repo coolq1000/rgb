@@ -77,7 +77,7 @@ impl Cartridge {
         }
 
         // otherwise return the switchable bank
-        self.rom[address as usize + (self.rom_bank as usize * sizes::ROM_BANK)]
+        self.rom[(address as usize) - sizes::ROM_BANK + (self.rom_bank as usize * sizes::ROM_BANK)]
     }
 
     pub fn fetch_ram_byte(&self, address: u16) -> u8 {
