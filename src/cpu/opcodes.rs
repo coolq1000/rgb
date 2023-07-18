@@ -78,6 +78,7 @@ pub fn execute_cb(cpu: &mut Cpu, opcode: u8) {
         "0011_0xxx" => cb::rsb::swap_r8(cpu, x),
         "01xx_xyyy" => cb::rsb::bit_u8_r8(cpu, x, y),
         "10xx_xyyy" => cb::rsb::res_u8_r8(cpu, x, y),
+        "11xx_xyyy" => cb::rsb::set_u8_r8(cpu, x, y),
         _ => {
             cpu.registers.pc = cpu.registers.pc.wrapping_sub(1); // rewind 0xcb byte from program counter
             cpu.fault("unimplemented prefix cb instruction");
@@ -654,6 +655,11 @@ mod cb {
         pub fn res_u8_r8(cpu: &mut Cpu, bit: u8, reg: u8) {
             let reset = cpu.get_r8(reg) & !(1 << bit);
             cpu.set_r8(reg, reset);
+        }
+
+        pub fn set_u8_r8(cpu: &mut Cpu, bit: u8, reg: u8) {
+            let r8 = cpu.get_r8(reg);
+            cpu.set_r8(reg, r8 | (1 << bit));
         }
     }
 }

@@ -155,6 +155,7 @@ impl Ppu {
 
                     self.stage = if self.ly == LCD_HEIGHT as u8 {
                         self.vblank_int = true;
+                        self.frame = self.frame.wrapping_add(1);
                         PpuStage::VBlank
                     } else {
                         PpuStage::OamSearch
@@ -170,7 +171,6 @@ impl Ppu {
                     self.compare_ly_lyc();
 
                     if self.ly == 0 {
-                        self.frame = self.frame.wrapping_add(1);
                         self.stage = PpuStage::OamSearch;
                         self.update_stat_interrupt();
                     }
@@ -253,15 +253,6 @@ impl Ppu {
                     && (x as i16) >= sprite_x
                     && (x as i16) < sprite_x + 8
                 {
-                    self.set_pixel(
-                        x as u32,
-                        y as u32,
-                        Colour {
-                            r: 255,
-                            g: 255,
-                            b: 255,
-                        },
-                    );
                     let flip_x = (sprite_tile_attributes & 0x20) > 0;
                     let flip_y = (sprite_tile_attributes & 0x40) > 0;
                     let priority = (sprite_tile_attributes & 0x80) > 0;

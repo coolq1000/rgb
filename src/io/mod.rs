@@ -1,3 +1,8 @@
+pub mod cartridge;
+pub mod joypad;
+pub mod ppu;
+pub mod timer;
+
 use crate::{boot, cpu::interrupt::Interrupt};
 
 use cartridge::Cartridge;
@@ -7,11 +12,10 @@ pub use ppu::Ppu;
 
 pub use timer::Timer;
 
-use self::ppu::{Lcdc, PpuStatus};
-
-pub mod cartridge;
-pub mod ppu;
-pub mod timer;
+use self::{
+    joypad::Joypad,
+    ppu::{Lcdc, PpuStatus},
+};
 
 mod map {
     /// cartridge rom
@@ -42,6 +46,10 @@ mod map {
     pub const HRAM_LOW: u16 = 0xff80;
     pub const HRAM_HIGH: u16 = 0xfffe;
     pub const HRAM_SIZE: usize = 0x7f;
+
+    pub mod joyp_io {
+        pub const JOYP_ADDR: u16 = 0xff00;
+    }
 
     pub mod lcd_io {
         pub const LCDC_ADDR: u16 = 0xff40;
@@ -76,6 +84,7 @@ pub struct Bus {
     pub it_enable: Interrupt,
     pub it_flag: Interrupt,
     pub ppu: Ppu,
+    pub joypad: Joypad,
     pub timer: Timer,
     pub boot: bool,
 }
@@ -91,6 +100,7 @@ impl Bus {
             it_enable: Interrupt::from(0),
             it_flag: Interrupt::from(0),
             ppu: Ppu::new(),
+            joypad: Joypad::default(),
             timer: Timer::new(),
             boot: true,
         }
@@ -110,6 +120,7 @@ impl Bus {
             map::WRAM_LOW..=map::WRAM_HIGH => self.wram[(address - map::WRAM_LOW) as usize],
             map::ECHO_LOW..=map::ECHO_HIGH => self.wram[(address - map::ECHO_LOW) as usize],
             map::OAM_LOW..=map::OAM_HIGH => self.ppu.oam[(address - map::OAM_LOW) as usize],
+            map::joyp_io::JOYP_ADDR => self.joypad.select_matrix(),
             map::lcd_io::LCDC_ADDR => self.ppu.lcdc.into(),
             map::lcd_io::STAT_ADDR => self.ppu.stat.into(),
             map::lcd_io::SCY_ADDR => self.ppu.scy,
@@ -165,6 +176,12 @@ impl Bus {
             }
             map::INTERRUPT_FLAG => {
                 self.it_flag = Interrupt::from(value);
+            }
+            map::joyp_io::JOYP_ADDR => {
+                let matrix_col_2x2 = (value & 0x30) >> 4;
+                let least = (matrix_col_2x2 & 1) != 0;
+                let most = (matrix_col_2x2 & 2) != 0;
+                self.joypad.set_matrix(most, least);
             }
             map::lcd_io::LCDC_ADDR => {
                 self.ppu.lcdc = Lcdc::from(value);

@@ -1,6 +1,5 @@
 mod boot;
 mod cpu;
-mod dmg;
 mod io;
 
 use std::path::Path;
@@ -14,7 +13,7 @@ use log::error;
 use pixels::{Pixels, SurfaceTexture};
 use winit::{
     dpi::LogicalSize,
-    event::{Event, WindowEvent},
+    event::{ElementState, Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
@@ -25,7 +24,7 @@ fn main() {
     env_logger::init();
 
     let mut cpu =
-        Cpu::new(Cartridge::from_path(Path::new("./tetris.gb")).expect("unable to load rom"));
+        Cpu::new(Cartridge::from_path(Path::new("./zelda.gb")).expect("unable to load rom"));
     // loop {
     //     cpu.machine_cycle();
     // }
@@ -49,13 +48,26 @@ fn main() {
 
     let mut last_frame = 0;
 
+    let mut right = false;
+    let mut left = false;
+    let mut up = false;
+    let mut down = false;
+    let mut a = false;
+    let mut b = false;
+    let mut select = false;
+    let mut start = false;
+
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
+            cpu.bus.joypad.set_directions(right, left, up, down);
+            cpu.bus.joypad.set_actions(a, b, select, start);
+
             while last_frame == cpu.bus.ppu.frame {
                 for _ in 0..2048 {
                     cpu.machine_cycle();
                 }
             }
+
             last_frame = cpu.bus.ppu.frame;
             let frame = pixels.frame_mut();
             for (c, pix) in cpu
@@ -78,6 +90,26 @@ fn main() {
         Event::WindowEvent { window_id, event } if window_id == window.id() => match event {
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             WindowEvent::Resized(size) => pixels.resize_surface(size.width, size.height).unwrap(),
+            WindowEvent::KeyboardInput {
+                device_id,
+                input,
+                is_synthetic,
+            } => {
+                if let Some(key) = input.virtual_keycode {
+                    let pressed = matches!(input.state, ElementState::Pressed);
+                    match key {
+                        VirtualKeyCode::Right => right = pressed,
+                        VirtualKeyCode::Left => left = pressed,
+                        VirtualKeyCode::Up => up = pressed,
+                        VirtualKeyCode::Down => down = pressed,
+                        VirtualKeyCode::X => a = pressed,
+                        VirtualKeyCode::Z => b = pressed,
+                        VirtualKeyCode::Back => select = pressed,
+                        VirtualKeyCode::Return => start = pressed,
+                        _ => {}
+                    }
+                }
+            }
             _ => {}
         },
         _ => {}
