@@ -16,6 +16,7 @@ pub fn execute(cpu: &mut Cpu, opcode: u8) {
         "00xx_x110" => lsm::ld_r8_u8(cpu, x),
         "0000_0111" => rsb::rlca(cpu),
         "0000_1111" => rsb::rrca(cpu),
+        "0001_0000" => ctrl::stop(cpu),
         "0001_0111" => rsb::rla(cpu),
         "0001_1111" => rsb::rra(cpu),
         "000x_0010" => lsm::ld_mr16_a(cpu, x),
@@ -26,6 +27,8 @@ pub fn execute(cpu: &mut Cpu, opcode: u8) {
         "0010_1010" => lsm::ldi_a_mhl(cpu),
         "0010_0111" => alu::daa(cpu),
         "0010_1111" => alu::cpl(cpu),
+        "0011_0111" => alu::scf(cpu),
+        "0011_1111" => alu::ccf(cpu),
         "0011_0010" => lsm::ldd_mhl_a(cpu),
         "0011_1010" => lsm::ldd_a_mhl(cpu),
         "0000_1000" => lsm::ld_mu16_sp(cpu),
@@ -39,7 +42,7 @@ pub fn execute(cpu: &mut Cpu, opcode: u8) {
         "1011_0xxx" => alu::or_a_r8(cpu, x),
         "1011_1xxx" => alu::cp_a_r8(cpu, x),
         "110x_x000" => ctrl::ret_f(cpu, x),
-        "110x_x010" => ctrl::jp_a16_f(cpu, x),
+        "110x_x010" => ctrl::jp_f_a16(cpu, x),
         "1100_0011" => ctrl::jp_a16(cpu),
         "11xx_0001" => lsm::pop_r16(cpu, x),
         "1100_1001" => ctrl::ret(cpu),
@@ -53,6 +56,7 @@ pub fn execute(cpu: &mut Cpu, opcode: u8) {
         "1111_0110" => alu::or_a_u8(cpu),
         "1111_1110" => alu::cp_a_u8(cpu),
         "1101_1001" => ctrl::reti(cpu),
+        "110x_x100" => ctrl::call_f_u16(cpu, x),
         "1100_1101" => ctrl::call_u16(cpu),
         "11xx_x111" => ctrl::rst_u8(cpu, x),
         "1110_1001" => ctrl::jp_hl(cpu),
@@ -72,10 +76,14 @@ pub fn execute(cpu: &mut Cpu, opcode: u8) {
 pub fn execute_cb(cpu: &mut Cpu, opcode: u8) {
     #[bitmatch]
     match opcode {
+        "0000_0xxx" => cb::rsb::rlc_r8(cpu, x),
+        "0000_1xxx" => cb::rsb::rrc_r8(cpu, x),
         "0001_0xxx" => cb::rsb::rl_r8(cpu, x),
+        "0001_1xxx" => cb::rsb::rr_r8(cpu, x),
         "0010_0xxx" => cb::rsb::sla_r8(cpu, x),
-        "0011_1xxx" => cb::rsb::srl_r8(cpu, x),
+        "0010_1xxx" => cb::rsb::sra_r8(cpu, x),
         "0011_0xxx" => cb::rsb::swap_r8(cpu, x),
+        "0011_1xxx" => cb::rsb::srl_r8(cpu, x),
         "01xx_xyyy" => cb::rsb::bit_u8_r8(cpu, x, y),
         "10xx_xyyy" => cb::rsb::res_u8_r8(cpu, x, y),
         "11xx_xyyy" => cb::rsb::set_u8_r8(cpu, x, y),
@@ -476,6 +484,18 @@ mod alu {
         cpu.flags.n = true;
         cpu.flags.h = true;
     }
+
+    pub fn scf(cpu: &mut Cpu) {
+        cpu.flags.n = false;
+        cpu.flags.h = false;
+        cpu.flags.c = true;
+    }
+
+    pub fn ccf(cpu: &mut Cpu) {
+        cpu.flags.n = false;
+        cpu.flags.h = false;
+        cpu.flags.c = !cpu.flags.c;
+    }
 }
 
 /// rotate, shift & bitwise instructions
@@ -523,6 +543,10 @@ mod rsb {
 mod ctrl {
     use crate::cpu::Cpu;
 
+    pub fn stop(cpu: &mut Cpu) {
+        cpu.bus.switch_speed();
+    }
+
     pub fn jr_i8(cpu: &mut Cpu) {
         let offset = (super::next_byte(cpu) as i8) as i16;
 
@@ -549,7 +573,7 @@ mod ctrl {
         cpu.delay(1);
     }
 
-    pub fn jp_a16_f(cpu: &mut Cpu, flag: u8) {
+    pub fn jp_f_a16(cpu: &mut Cpu, flag: u8) {
         let addr = super::next_word(cpu);
 
         if cpu.get_flag(flag) {
@@ -578,6 +602,16 @@ mod ctrl {
         cpu.delay(1);
     }
 
+    pub fn call_f_u16(cpu: &mut Cpu, flag: u8) {
+        let imm16 = super::next_word(cpu);
+
+        if cpu.get_flag(flag) {
+            cpu.push_word(cpu.registers.pc);
+            cpu.registers.pc = imm16;
+            cpu.delay(1);
+        }
+    }
+
     pub fn call_u16(cpu: &mut Cpu) {
         let imm16 = super::next_word(cpu);
         cpu.push_word(cpu.registers.pc);
@@ -601,6 +635,28 @@ mod cb {
     pub mod rsb {
         use crate::cpu::Cpu;
 
+        pub fn rlc_r8(cpu: &mut Cpu, reg: u8) {
+            let r8 = cpu.get_r8(reg);
+            let r = (r8 << 1) | (r8 >> 7);
+            cpu.set_r8(reg, r);
+
+            cpu.flags.z = r == 0;
+            cpu.flags.n = false;
+            cpu.flags.h = false;
+            cpu.flags.c = (r8 & 0x80) != 0;
+        }
+
+        pub fn rrc_r8(cpu: &mut Cpu, reg: u8) {
+            let r8 = cpu.get_r8(reg);
+            let r = (r8 >> 1) | (r8 << 7);
+            cpu.set_r8(reg, r);
+
+            cpu.flags.z = r == 0;
+            cpu.flags.n = false;
+            cpu.flags.h = false;
+            cpu.flags.c = (r8 & 1) != 0;
+        }
+
         pub fn rl_r8(cpu: &mut Cpu, reg: u8) {
             let r8 = cpu.get_r8(reg);
             let r = (r8 << 1) | cpu.flags.c as u8;
@@ -610,6 +666,17 @@ mod cb {
             cpu.flags.n = false;
             cpu.flags.h = false;
             cpu.flags.c = (r8 & 0x80) != 0;
+        }
+
+        pub fn rr_r8(cpu: &mut Cpu, reg: u8) {
+            let r8 = cpu.get_r8(reg);
+            let r = (r8 >> 1) | ((cpu.flags.c as u8) << 7);
+            cpu.set_r8(reg, r);
+
+            cpu.flags.z = r == 0;
+            cpu.flags.n = false;
+            cpu.flags.h = false;
+            cpu.flags.c = (r8 & 1) != 0;
         }
 
         pub fn sla_r8(cpu: &mut Cpu, reg: u8) {
@@ -622,6 +689,18 @@ mod cb {
             cpu.flags.n = false;
             cpu.flags.h = false;
             cpu.flags.c = r8 & 0x80 != 0;
+        }
+
+        pub fn sra_r8(cpu: &mut Cpu, reg: u8) {
+            let r8 = cpu.get_r8(reg);
+
+            let result = (r8 >> 1) | (r8 & 0x80);
+            cpu.set_r8(reg, result);
+
+            cpu.flags.z = result == 0;
+            cpu.flags.n = false;
+            cpu.flags.h = false;
+            cpu.flags.c = r8 & 1 != 0;
         }
 
         pub fn srl_r8(cpu: &mut Cpu, reg: u8) {

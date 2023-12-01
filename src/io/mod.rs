@@ -1,3 +1,4 @@
+pub mod apu;
 pub mod cartridge;
 pub mod joypad;
 pub mod ppu;
@@ -7,12 +8,13 @@ use crate::{boot, cpu::interrupt::Interrupt};
 
 use cartridge::Cartridge;
 
-use log::{error, warn};
+use log::warn;
 pub use ppu::Ppu;
 
 pub use timer::Timer;
 
 use self::{
+    apu::Apu,
     joypad::Joypad,
     ppu::{Lcdc, PpuStatus},
 };
@@ -51,6 +53,42 @@ mod map {
         pub const JOYP_ADDR: u16 = 0xff00;
     }
 
+    pub mod timer_io {
+        pub const DIV_ADDR: u16 = 0xff04;
+        pub const TIMA_ADDR: u16 = 0xff05;
+        pub const TMA_ADDR: u16 = 0xff06;
+        pub const TAC_ADDR: u16 = 0xff07;
+    }
+
+    pub mod apu_io {
+        pub const NR10_ADDR: u16 = 0xff10;
+        pub const NR11_ADDR: u16 = 0xff11;
+        pub const NR12_ADDR: u16 = 0xff12;
+        pub const NR13_ADDR: u16 = 0xff13;
+        pub const NR14_ADDR: u16 = 0xff14;
+        pub const NR21_ADDR: u16 = 0xff16;
+        pub const NR22_ADDR: u16 = 0xff17;
+        pub const NR23_ADDR: u16 = 0xff18;
+        pub const NR24_ADDR: u16 = 0xff19;
+        pub const NR30_ADDR: u16 = 0xff1A;
+        pub const NR31_ADDR: u16 = 0xff1B;
+        pub const NR32_ADDR: u16 = 0xff1C;
+        pub const NR33_ADDR: u16 = 0xff1D;
+        pub const NR34_ADDR: u16 = 0xff1E;
+        pub const NR40_ADDR: u16 = 0xff1F;
+        pub const NR41_ADDR: u16 = 0xff20;
+        pub const NR42_ADDR: u16 = 0xff21;
+        pub const NR43_ADDR: u16 = 0xff22;
+        pub const NR44_ADDR: u16 = 0xff23;
+        pub const NR50_ADDR: u16 = 0xff24;
+        pub const NR51_ADDR: u16 = 0xff25;
+        pub const NR52_ADDR: u16 = 0xff26;
+
+        pub const WAVE_LOW: u16 = 0xff30;
+        pub const WAVE_HIGH: u16 = 0xff3f;
+        pub const WAVE_SIZE: usize = 0x10;
+    }
+
     pub mod lcd_io {
         pub const LCDC_ADDR: u16 = 0xff40;
         pub const STAT_ADDR: u16 = 0xff41;
@@ -83,6 +121,7 @@ pub struct Bus {
     /// set of cpu interrupts, disrupt control flow
     pub it_enable: Interrupt,
     pub it_flag: Interrupt,
+    pub apu: Apu,
     pub ppu: Ppu,
     pub joypad: Joypad,
     pub timer: Timer,
@@ -99,6 +138,7 @@ impl Bus {
             dma_idx: map::OAM_SIZE as u16,
             it_enable: Interrupt::from(0),
             it_flag: Interrupt::from(0),
+            apu: Apu::new(),
             ppu: Ppu::new(),
             joypad: Joypad::default(),
             timer: Timer::new(),
@@ -112,15 +152,32 @@ impl Bus {
                 if self.boot && (address as usize) < boot::BOOTROM.len() {
                     boot::BOOTROM[address as usize]
                 } else {
-                    self.cart.fetch_rom_byte(address)
+                    self.cart.controller.fetch_rom_byte(address)
                 }
             }
             map::VRAM_LOW..=map::VRAM_HIGH => self.ppu.vram[(address - map::VRAM_LOW) as usize],
-            map::XRAM_LOW..=map::XRAM_HIGH => self.cart.fetch_ram_byte(address - map::XRAM_LOW),
+            map::XRAM_LOW..=map::XRAM_HIGH => {
+                self.cart.controller.fetch_ram_byte(address - map::XRAM_LOW)
+            }
             map::WRAM_LOW..=map::WRAM_HIGH => self.wram[(address - map::WRAM_LOW) as usize],
             map::ECHO_LOW..=map::ECHO_HIGH => self.wram[(address - map::ECHO_LOW) as usize],
             map::OAM_LOW..=map::OAM_HIGH => self.ppu.oam[(address - map::OAM_LOW) as usize],
             map::joyp_io::JOYP_ADDR => self.joypad.select_matrix(),
+            map::timer_io::DIV_ADDR => self.timer.get_div(),
+            map::timer_io::TIMA_ADDR => self.timer.counter,
+            map::timer_io::TMA_ADDR => self.timer.modulo,
+            map::timer_io::TAC_ADDR => self.timer.get_control(),
+            map::apu_io::NR10_ADDR => self.apu.nr10,
+            map::apu_io::NR11_ADDR => self.apu.nr11,
+            map::apu_io::NR12_ADDR => self.apu.nr12,
+            map::apu_io::NR13_ADDR => self.apu.nr13,
+            map::apu_io::NR14_ADDR => self.apu.nr14,
+            map::apu_io::NR50_ADDR => self.apu.nr50,
+            map::apu_io::NR51_ADDR => self.apu.nr51,
+            map::apu_io::NR52_ADDR => self.apu.nr52,
+            map::apu_io::WAVE_LOW..=map::apu_io::WAVE_HIGH => {
+                self.apu.wave[(address - map::apu_io::WAVE_LOW) as usize]
+            }
             map::lcd_io::LCDC_ADDR => self.ppu.lcdc.into(),
             map::lcd_io::STAT_ADDR => self.ppu.stat.into(),
             map::lcd_io::SCY_ADDR => self.ppu.scy,
@@ -142,8 +199,12 @@ impl Bus {
         }
     }
 
+    pub fn switch_speed(&mut self) {}
+
     pub fn tick(&mut self) {
+        self.timer.tick();
         self.ppu.tick();
+        self.apu.tick();
 
         if self.dma_idx < map::OAM_SIZE as u16 {
             let direct_byte = self.fetch_byte(self.dma_src);
@@ -157,13 +218,15 @@ impl Bus {
     pub fn store_byte(&mut self, address: u16, value: u8) {
         match address {
             map::ROM_LOW..=map::ROM_HIGH => {
-                self.cart.store_rom_byte(address, value);
+                self.cart.controller.store_rom_byte(address, value);
             }
             map::VRAM_LOW..=map::VRAM_HIGH => {
                 self.ppu.vram[(address - map::VRAM_LOW) as usize] = value;
             }
             map::XRAM_LOW..=map::XRAM_HIGH => {
-                self.cart.store_ram_byte(address - map::XRAM_LOW, value);
+                self.cart
+                    .controller
+                    .store_ram_byte(address - map::XRAM_LOW, value);
             }
             map::WRAM_LOW..=map::WRAM_HIGH => {
                 self.wram[(address - map::WRAM_LOW) as usize] = value;
@@ -182,6 +245,21 @@ impl Bus {
                 let least = (matrix_col_2x2 & 1) != 0;
                 let most = (matrix_col_2x2 & 2) != 0;
                 self.joypad.set_matrix(most, least);
+            }
+            map::timer_io::DIV_ADDR => self.timer.reset_div(),
+            map::timer_io::TIMA_ADDR => self.timer.counter = value,
+            map::timer_io::TMA_ADDR => self.timer.modulo = value,
+            map::timer_io::TAC_ADDR => self.timer.set_control(value),
+            map::apu_io::NR10_ADDR => self.apu.set_nr10(value),
+            map::apu_io::NR11_ADDR => self.apu.set_nr11(value),
+            map::apu_io::NR12_ADDR => self.apu.set_nr12(value),
+            map::apu_io::NR13_ADDR => self.apu.set_nr13(value),
+            map::apu_io::NR14_ADDR => self.apu.set_nr14(value),
+            map::apu_io::NR50_ADDR => self.apu.set_nr50(value),
+            map::apu_io::NR51_ADDR => self.apu.set_nr51(value),
+            map::apu_io::NR52_ADDR => self.apu.set_nr52(value),
+            map::apu_io::WAVE_LOW..=map::apu_io::WAVE_HIGH => {
+                self.apu.wave[(address - map::apu_io::WAVE_LOW) as usize] = value;
             }
             map::lcd_io::LCDC_ADDR => {
                 self.ppu.lcdc = Lcdc::from(value);

@@ -1,11 +1,12 @@
 use crate::io::{cartridge::Cartridge, Bus};
 
-use interrupt::Interrupt;
 use log::{error, info};
 
 mod disasm;
 pub mod interrupt;
 mod opcodes;
+
+pub const FREQUENCY: usize = 4194304;
 
 pub struct Cpu {
     /// all cpu registers excluding flags

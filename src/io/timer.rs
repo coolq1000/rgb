@@ -1,7 +1,7 @@
 pub struct Timer {
-    counter: u8,
-    modulo: u8,
-    enabled: bool,
+    pub counter: u8,
+    pub modulo: u8,
+    enable: bool,
     divider: Divider,
     counter_16k: u32,
     pub interrupt: bool,
@@ -20,7 +20,7 @@ impl Timer {
         Self {
             counter: 0,
             modulo: 0,
-            enabled: false,
+            enable: false,
             divider: Divider::Div1024,
             counter_16k: 0,
             interrupt: false,
@@ -30,7 +30,7 @@ impl Timer {
     pub fn tick(&mut self) {
         self.counter_16k += 1;
 
-        if !self.enabled {
+        if !self.enable {
             return;
         }
 
@@ -47,7 +47,32 @@ impl Timer {
         }
     }
 
-    pub fn div(&self) -> u8 {
+    pub fn get_div(&self) -> u8 {
         (self.counter_16k >> 8) as u8
+    }
+
+    pub fn reset_div(&mut self) {
+        self.counter_16k = 0;
+    }
+
+    pub fn set_control(&mut self, ctrl: u8) {
+        self.enable = ctrl & 4 != 0;
+
+        self.divider = match ctrl & 3 {
+            0 => Divider::Div1024,
+            1 => Divider::Div16,
+            2 => Divider::Div64,
+            3 => Divider::Div256,
+            _ => unreachable!(),
+        };
+    }
+
+    pub fn get_control(&self) -> u8 {
+        let mut ctrl = 0;
+
+        ctrl |= (self.enable as u8) << 2;
+        ctrl |= self.divider as u8;
+
+        ctrl
     }
 }

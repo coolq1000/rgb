@@ -196,7 +196,7 @@ impl Ppu {
         let tile_addr: u16 = if self.lcdc.bg_win_map || sprite {
             tile_id as u16 * 16
         } else {
-            0x1000 + tile_id as u16 * 16
+            (0x1000i32 + (16 * tile_id as i8 as i32)) as u16
         };
 
         let line_1 = self.vram[(tile_addr + y as u16 * 2) as usize + 1];
@@ -241,9 +241,9 @@ impl Ppu {
                 let sprite_tile_attributes = self.oam[sprite_address + 3];
 
                 let palette = if sprite_tile_attributes & 0x10 > 0 {
-                    self.obp0
-                } else {
                     self.obp1
+                } else {
+                    self.obp0
                 };
 
                 let sprite_height = if self.lcdc.obj_size { 16 } else { 8 };
@@ -280,11 +280,19 @@ impl Ppu {
     }
 
     fn render_line(&mut self) {
-        let window_x = self.wx.wrapping_sub(7);
+        let window_x = self.wx as i32 - 7;
         let window_y = self.wy;
 
         for x in 0..LCD_WIDTH {
-            if self.lcdc.bg_win_enable
+            if self.lcdc.win_enable && self.ly >= window_y && x as i32 >= window_x {
+                let pixel = self.render_background_pixel(
+                    (x as u8).wrapping_sub(window_x as u8),
+                    (self.ly).wrapping_sub(window_y),
+                    true,
+                );
+
+                self.set_pixel(x as u32, self.ly as u32, pixel);
+            } else if self.lcdc.bg_win_enable
             /* TODO: change in cgb */
             {
                 let pixel = self.render_background_pixel(
@@ -295,9 +303,9 @@ impl Ppu {
 
                 self.set_pixel(x as u32, self.ly as u32, pixel);
             }
-            // if self.lcdc.obj_enable {
-            self.render_sprite_pixel(x as u8, self.ly);
-            // }
+            if self.lcdc.obj_enable {
+                self.render_sprite_pixel(x as u8, self.ly);
+            }
         }
     }
 }

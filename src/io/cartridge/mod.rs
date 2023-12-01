@@ -25,18 +25,8 @@ mod offsets {
 }
 
 pub struct Cartridge {
-    /// catridge read only memory
-    rom: Vec<u8>,
-    /// catridge random access memory
-    ram: Vec<u8>,
-    /// number of banks within the cartridge (see controllers)
-    rom_banks: u8,
-    /// currently selected rom bank
-    rom_bank: u8,
-    /// currently selected ram bank
-    ram_bank: u8,
     /// memory bank controller (mbc)
-    controller: Mbc,
+    pub controller: Mbc,
     /// file to save external ram to
     save_file: File,
 }
@@ -56,39 +46,12 @@ impl Cartridge {
         let mbc_type = rom[offsets::TYPE];
 
         Ok(Self {
-            rom,
-            ram: Vec::from([0; sizes::RAM_BANK * sizes::RAM_COUNT]),
-            rom_banks: 2,
-            rom_bank: 1,
-            ram_bank: 0,
-            controller: Mbc::from_id(mbc_type).expect("unknown mbc type"),
+            controller: Mbc::new(rom, mbc_type),
             save_file: OpenOptions::new()
                 .write(true)
                 .create(true)
                 .open(path.with_extension("sav"))
                 .expect("unable to write save file"),
         })
-    }
-
-    pub fn fetch_rom_byte(&self, address: u16) -> u8 {
-        // check if the address is within the first bank
-        if address < sizes::ROM_BANK as u16 {
-            return self.rom[address as usize];
-        }
-
-        // otherwise return the switchable bank
-        self.rom[(address as usize) - sizes::ROM_BANK + (self.rom_bank as usize * sizes::ROM_BANK)]
-    }
-
-    pub fn fetch_ram_byte(&self, address: u16) -> u8 {
-        self.ram[address as usize + (self.ram_bank as usize * sizes::RAM_BANK)]
-    }
-
-    pub fn store_rom_byte(&mut self, address: u16, value: u8) {
-        self.controller.write(address, value);
-    }
-
-    pub fn store_ram_byte(&mut self, address: u16, value: u8) {
-        self.ram[address as usize + (self.ram_bank as usize * sizes::RAM_BANK)] = value;
     }
 }
